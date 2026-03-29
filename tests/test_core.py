@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
+import os
 
 import pytest
 
@@ -44,10 +45,11 @@ def test_suggest_returns_dict(mock_key, mock_query, tmp_path: Path):
 
 
 def test_missing_api_key_error_message():
-    with pytest.raises(MissingAPIKeyError):
-        from smart_locator.openai_client import resolve_api_key
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(MissingAPIKeyError):
+            from smart_locator.openai_client import resolve_api_key
 
-        resolve_api_key(None)
+            resolve_api_key(None)
 
 
 @patch("smart_locator.core.interpret_query", return_value=[])
@@ -114,6 +116,18 @@ def test_validate_and_wait_suggestions(mock_key, mock_query, tmp_path: Path):
 
     assert validated["elements"][0]["locators"][0]["validation"].startswith("MULTIPLE")
     assert wait_payload["elements"][0]["timeout"] == 10
+
+
+@patch("smart_locator.core.interpret_query", return_value=[])
+@patch("smart_locator.core.resolve_api_key", return_value="secret")
+def test_assist_enriches_exact_selector(mock_key, mock_query, tmp_path: Path):
+    locator = SmartLocator(_driver(), cache_path=tmp_path / "cache.db")
+    result = locator.assist("username field")
+
+    primary = result["elements"][0]["primary_locator"]
+    assert primary["selenium_by"]
+    assert primary["selector"] == '[data-testid="login-username"]'
+    assert "->" in primary["exact"]
 
 
 @patch("smart_locator.core.interpret_query", return_value=[])

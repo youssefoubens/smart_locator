@@ -46,6 +46,87 @@ def format_suggestions(elements: List[Dict[str, object]]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def format_tester_workspace(payload: Dict[str, object]) -> str:
+    elements = payload.get("elements", [])
+    query = str(payload.get("query", "")).strip()
+    url = str(payload.get("url", "")).strip()
+    if not elements:
+        return "\n".join(
+            [
+                "Tester Workspace",
+                f"Query: {query or '(empty)'}",
+                f"URL: {url or '(unknown)'}",
+                "",
+                "No relevant elements found.",
+            ]
+        )
+
+    lines = [
+        "Tester Workspace",
+        f"Query: {query}",
+        f"URL: {url}",
+        "",
+    ]
+    for index, element in enumerate(elements, start=1):
+        primary = element.get("primary_locator") or {}
+        lines.extend(
+            [
+                f"{index}. {element['label']}",
+                f"   Best match: {primary.get('strategy', '-')} | score={primary.get('score', '-')} | {primary.get('tier', '-')}",
+                f"   Exact selector: {primary.get('exact', '-')}",
+            ]
+        )
+        validation = primary.get("validation")
+        if validation:
+            lines.append(f"   Validation: {validation}")
+        frame_path = element.get("frame_path") or []
+        shadow_path = element.get("shadow_path") or []
+        if frame_path:
+            lines.append(f"   Frame path: {' > '.join(frame_path)}")
+        if shadow_path:
+            lines.append(f"   Shadow path: {' > '.join(shadow_path)}")
+        reason = primary.get("reason")
+        if reason:
+            lines.append(f"   Why: {reason}")
+        alternatives = [
+            f"{locator['strategy']}={locator.get('selector') or locator.get('value', '-')}"
+            for locator in element.get("locators", [])[1:]
+        ]
+        if alternatives:
+            lines.append(f"   Fallbacks: {' | '.join(alternatives)}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def format_chat_reply(payload: Dict[str, object]) -> str:
+    elements = payload.get("elements", [])
+    query = str(payload.get("query", "")).strip()
+    if not elements:
+        return f'I could not find a confident selector for "{query}". Try describing the element with visible text, role, or form label.'
+
+    primary_element = elements[0]
+    primary_locator = primary_element.get("primary_locator") or {}
+    lines = [
+        f'Best selector for "{query}":',
+        f'- Element: {primary_element["label"]}',
+        f'- Exact selector: {primary_locator.get("exact", "-")}',
+        f'- Strategy: {primary_locator.get("strategy", "-")} (score={primary_locator.get("score", "-")}, tier={primary_locator.get("tier", "-")})',
+    ]
+    validation = primary_locator.get("validation")
+    if validation:
+        lines.append(f"- Validation: {validation}")
+    reason = primary_locator.get("reason")
+    if reason:
+        lines.append(f"- Why this one: {reason}")
+
+    alternatives = primary_element.get("locators", [])[1:3]
+    if alternatives:
+        lines.append("- Fallbacks:")
+        for locator in alternatives:
+            lines.append(f"  {locator['exact']}")
+    return "\n".join(lines)
+
+
 def _format_header() -> str:
     return f"{'Tier':<5} {'Element':<18} {'Strategy':<12} {'Value':<34} {'Scr':>3} {'Bar':<8} Reason"
 

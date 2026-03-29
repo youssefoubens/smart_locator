@@ -77,6 +77,25 @@ class SmartLocator:
             element["locators"].sort(key=lambda item: item["score"], reverse=True)
         return payload
 
+    def assist(self, query: str, *, validate: bool = True) -> Dict[str, object]:
+        payload = self.validate(query) if validate else self._get_or_build_payload(query)
+        enriched_elements = []
+        for element in payload["elements"]:
+            locators = []
+            for locator in element["locators"]:
+                by, selector = self._locator_to_selenium(locator["strategy"], locator["value"])
+                item = dict(locator)
+                item["selenium_by"] = by
+                item["selector"] = selector
+                item["exact"] = f"{by} -> {selector}"
+                locators.append(item)
+            enriched = dict(element)
+            enriched["locators"] = locators
+            if locators:
+                enriched["primary_locator"] = locators[0]
+            enriched_elements.append(enriched)
+        return {"query": query, "url": self.current_url, "elements": enriched_elements}
+
     def repair(self, by: str, value: str, description: str) -> Tuple[Tuple[str, str], str]:
         payload = self._get_or_build_payload(description, fresh=True)
         best = payload["elements"][0]["locators"][0]

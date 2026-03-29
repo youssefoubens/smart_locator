@@ -1,7 +1,14 @@
 from unittest.mock import Mock
 
 from smart_locator.parser import PARSER_SCRIPT, parse_dom, truncate_context
-from smart_locator.render import render_page_object, render_python_snippets, score_bar, snake_case
+from smart_locator.render import (
+    format_chat_reply,
+    format_tester_workspace,
+    render_page_object,
+    render_python_snippets,
+    score_bar,
+    snake_case,
+)
 
 
 def test_parse_dom_executes_script():
@@ -58,3 +65,46 @@ def test_format_suggestions_renders_table():
     assert "Element" in output
     assert "Username" in output
     assert "Matches query keywords" in output
+
+
+def test_tester_workspace_and_chat_reply_render_exact_selector():
+    payload = {
+        "query": "username field",
+        "url": "https://example.test/login",
+        "elements": [
+            {
+                "label": "Username",
+                "frame_path": [],
+                "shadow_path": [],
+                "primary_locator": {
+                    "strategy": "data-testid",
+                    "score": 98,
+                    "tier": "BEST",
+                    "reason": "Stable test hook.",
+                    "exact": 'css selector -> [data-testid="login-username"]',
+                    "validation": "FOUND",
+                },
+                "locators": [
+                    {
+                        "strategy": "data-testid",
+                        "selector": '[data-testid="login-username"]',
+                        "exact": 'css selector -> [data-testid="login-username"]',
+                    },
+                    {
+                        "strategy": "name",
+                        "selector": "username",
+                        "exact": "name -> username",
+                    },
+                ],
+            }
+        ],
+    }
+
+    workspace = format_tester_workspace(payload)
+    reply = format_chat_reply(payload)
+
+    assert "Tester Workspace" in workspace
+    assert "Exact selector" in workspace
+    assert '[data-testid="login-username"]' in workspace
+    assert 'Best selector for "username field"' in reply
+    assert "Fallbacks:" in reply

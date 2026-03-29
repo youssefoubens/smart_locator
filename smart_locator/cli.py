@@ -8,6 +8,7 @@ from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
+from .assistant import answer_query, run_chat
 from .core import SmartLocator
 
 
@@ -18,6 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     suggest = subparsers.add_parser("suggest")
     suggest.add_argument("--url", required=True)
     suggest.add_argument("--query", required=True)
+
+    assist = subparsers.add_parser("assist")
+    assist.add_argument("--url", required=True)
+    assist.add_argument("--query")
 
     generate = subparsers.add_parser("generate")
     generate.add_argument("--url", required=True)
@@ -44,6 +49,11 @@ def main(argv=None) -> int:
         if args.command == "suggest":
             print(locator.suggest(args.query))
             return 0
+        if args.command == "assist":
+            if args.query:
+                print(answer_query(locator, args.query))
+                return 0
+            return run_chat(locator)
         output = locator.generate_page_object(args.class_name, args.query)
         destination = Path(args.out)
         destination.write_text(output, encoding="utf-8")
