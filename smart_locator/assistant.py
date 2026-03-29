@@ -91,7 +91,9 @@ class SmartAssistant:
             )
         workspace = format_tester_workspace(payload)
         reply = format_chat_reply(payload)
-        return f"{workspace}\n\nChatbot\n{reply}".strip()
+        recommended = self._best_selector_for(query)
+        recommendation = f"Automation recommendation: `{recommended}`"
+        return f"{workspace}\n\nChatbot\n{reply}\n{recommendation}".strip()
 
     def _handle_direct_action(self, intent: str, query: str) -> str:
         if intent == "create_page":
@@ -306,8 +308,84 @@ class SmartAssistant:
             payload = self.locator.assist(description.replace("_", " "), validate=False)
         except SmartLocatorError:
             return f'[data-smart-locator="{self._slugify(description)}"]'
-        primary = payload["elements"][0]["primary_locator"] if payload.get("elements") else {}
-        return str(primary.get("selector", f'[data-smart-locator="{self._slugify(description)}"]'))
+        candidate = self._pick_best_locator(payload, description)
+        if candidate is not None:
+            return candidate
+        return f'[data-smart-locator="{self._slugify(description)}"]'
+
+    def _pick_best_locator(self, payload: Dict[str, object], description: str) -> Optional[str]:
+        elements = payload.get("elements", [])
+        tokens = self._meaningful_tokens(description)
+        best_selector: Optional[str] = None
+        best_score = -10**9
+        for element in elements:
+            label = str(element.get("label", "")).lower()
+            for locator in element.get("locators", []):
+                strategy = str(locator.get("strategy", ""))
+                value = str(locator.get("value", locator.get("selector", "")))
+                selector = self._framework_safe_selector(strategy, value)
+                if selector is None:
+                    continue
+                score = self._selector_priority(strategy, selector)
+                score += int(locator.get("score", 0))
+                score += self._label_match_bonus(label, tokens)
+                if strategy == "css" and ":nth-of-type" in selector:
+                    score -= 80
+                if "button" in tokens and any(word in label for word in ("login", "submit", "sign in")):
+                    score += 20
+                if "field" in tokens and any(word in label for word in ("user", "pass", "email", "name")):
+                    score += 10
+                if best_selector is None or score > best_score:
+                    best_selector = selector
+                    best_score = score
+        return best_selector
+
+    def _framework_safe_selector(self, strategy: str, value: str) -> Optional[str]:
+        if not value:
+            return None
+        if strategy == "data-testid":
+            return f'[data-testid="{value}"]'
+        if strategy == "aria-label":
+            return f'[aria-label="{value}"]'
+        if strategy == "name":
+            return f'[name="{value}"]'
+        if strategy == "id":
+            return f'#{value}'
+        if strategy == "role":
+            return f'[role="{value}"]'
+        if strategy == "css":
+            if ":nth-of-type" in value and "#" not in value and "[" not in value and "." not in value:
+                return None
+            return value
+        return None
+
+    def _selector_priority(self, strategy: str, selector: str) -> int:
+        priorities = {
+            "data-testid": 500,
+            "aria-label": 450,
+            "name": 430,
+            "id": 420,
+            "role": 390,
+            "css": 320,
+        }
+        score = priorities.get(strategy, 0)
+        if selector.startswith("#"):
+            score += 10
+        if "[name=" in selector:
+            score += 20
+        return score
+
+    def _label_match_bonus(self, label: str, tokens: List[str]) -> int:
+        score = 0
+        for token in tokens:
+            if token in label:
+                score += 25
+        return score
+
+    def _meaningful_tokens(self, value: str) -> List[str]:
+        tokens = [token for token in re.sub(r"[^a-z0-9]+", " ", value.lower()).split() if token]
+        stop_words = {"a", "an", "the", "i", "want", "to", "using", "valid"}
+        return [token for token in tokens if token not in stop_words]
 
     def _resolve_selectors(self, field_names: List[str]) -> Dict[str, str]:
         return {field_name: self._best_selector_for(field_name) for field_name in field_names}

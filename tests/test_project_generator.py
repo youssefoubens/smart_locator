@@ -81,3 +81,32 @@ def test_playwright_test_template_uses_base_url_and_actions(tmp_path: Path):
     assert "await username_field.fill" in content
     assert "await submit_button.click()" in content
     assert "await expect(success_message).to_be_visible()" in content
+
+
+def test_playwright_page_template_receives_framework_safe_selectors(tmp_path: Path):
+    project_root = tmp_path / "demo"
+    config = ProjectConfig(
+        project_name="demo",
+        target_url="https://example.test/login",
+        framework="playwright",
+        project_root=project_root,
+    )
+    generator = ProjectGenerator(config, file_manager=FileManager(project_root, decision_callback=lambda _: "overwrite"))
+
+    generator.generate_story(
+        page_name="login",
+        page_class_name="LoginPage",
+        test_name="login_story",
+        steps=[
+            {"keyword": "fill", "field_name": "username_field", "selector": '[name="username"]', "value": "demo@example.com"},
+            {"keyword": "fill", "field_name": "password_field", "selector": '[name="pw"]', "value": "password123"},
+            {"keyword": "click", "field_name": "submit_button", "selector": '[name="login"]', "value": ""},
+            {"keyword": "assert_visible", "field_name": "success_message", "selector": '[data-testid="success"]', "value": ""},
+        ],
+        strategy="overwrite",
+    )
+
+    content = (project_root / "pages" / "login_page.py").read_text(encoding="utf-8")
+    assert 'USERNAME_FIELD = "[name=\\"username\\"]"' in content
+    assert 'PASSWORD_FIELD = "[name=\\"pw\\"]"' in content
+    assert 'SUBMIT_BUTTON = "[name=\\"login\\"]"' in content

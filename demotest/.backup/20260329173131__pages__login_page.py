@@ -9,13 +9,11 @@ class LoginPage:
     """Page object with async locator helpers."""
 
 
-    USERNAME_FIELD = "username"
+    USERNAME_FIELD = "[name=\"username\"]"
 
-    PASSWORD_FIELD = "pw"
+    PASSWORD_FIELD = "[name=\"password\"]"
 
-    SUBMIT_BUTTON = "Login"
-
-    SUCCESS_MESSAGE = "Save"
+    SUBMIT_BUTTON = "button[type=\"submit\"]"
 
 
     def __init__(self, page: Page) -> None:
@@ -39,8 +37,6 @@ class LoginPage:
 
         return self.page.locator(self.SUBMIT_BUTTON)
 
+"""Async Playwright page object for login."""
 
-    async def get_success_message(self):
-        """Return the success message locator."""
-
-        return self.page.locator(self.SUCCESS_MESSAGE)
+"""Async Playwright page object for login."""

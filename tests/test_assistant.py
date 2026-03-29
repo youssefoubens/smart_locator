@@ -129,3 +129,35 @@ def test_selector_reply_handles_locator_service_failure(tmp_path: Path):
     reply = assistant.answer("login button", interactive=True)
 
     assert "could not reach the selector service" in reply.lower()
+
+
+def test_best_selector_prefers_stable_name_over_positional_css(tmp_path: Path):
+    locator = Mock()
+    locator.assist.return_value = {
+        "query": "login button",
+        "url": "https://example.test/login",
+        "elements": [
+            {
+                "label": "login",
+                "locators": [
+                    {
+                        "strategy": "css",
+                        "value": "form#login_form > fieldset > input:nth-of-type(15)",
+                        "selector": "form#login_form > fieldset > input:nth-of-type(15)",
+                        "score": 52,
+                    },
+                    {
+                        "strategy": "name",
+                        "value": "login",
+                        "selector": "login",
+                        "score": 84,
+                    },
+                ],
+            }
+        ],
+    }
+    assistant = SmartAssistant(locator, tmp_path)
+
+    selector = assistant._best_selector_for("login button")
+
+    assert selector == '[name="login"]'
