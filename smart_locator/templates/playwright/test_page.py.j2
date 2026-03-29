@@ -1,0 +1,29 @@
+"""Generated async Playwright test for {{ story_name }}."""
+
+from __future__ import annotations
+
+import pytest
+from playwright.async_api import async_playwright
+
+from pages.{{ page_module_name }} import {{ page_class_name }}
+
+
+@pytest.mark.asyncio
+async def test_{{ story_name.replace(' ', '_') }}() -> None:
+    """Execute the generated Playwright scenario."""
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        page = await browser.new_page()
+        await page.goto("/")
+        page_object = {{ page_class_name }}(page)
+{% for step in steps %}
+{% if step.keyword in ["fill", "type"] %}
+        await (await page_object.get_{{ step.field_name }}()).fill({{ step.value|tojson }})
+{% elif step.keyword == "click" %}
+        await (await page_object.get_{{ step.field_name }}()).click()
+{% elif step.keyword in ["verify", "assert"] %}
+        await (await page_object.get_{{ step.field_name }}()).wait_for()
+{% endif %}
+{% endfor %}
+        await browser.close()

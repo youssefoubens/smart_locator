@@ -3,6 +3,7 @@ from unittest.mock import Mock
 from smart_locator.parser import PARSER_SCRIPT, parse_dom, truncate_context
 from smart_locator.render import (
     format_chat_reply,
+    format_operation_results,
     format_tester_workspace,
     render_page_object,
     render_python_snippets,
@@ -108,3 +109,19 @@ def test_tester_workspace_and_chat_reply_render_exact_selector():
     assert '[data-testid="login-username"]' in workspace
     assert 'Best selector for "username field"' in reply
     assert "Fallbacks:" in reply
+
+
+def test_operation_results_render_status_lines():
+    output = format_operation_results(
+        [
+            {"status": "CREATE", "path": "pages/login_page.py", "message": ""},
+            {"status": "MERGE", "path": "pages/login_page.py", "message": "added: password_field"},
+            {"status": "SKIP", "path": "utils/driver_factory.py", "message": ""},
+            {"status": "ERROR", "path": "tests/test_login.py", "message": "boom"},
+        ]
+    )
+
+    assert "[✓ CREATE]" in output
+    assert "[~ MERGE ]" in output
+    assert "[! SKIP  ]" in output
+    assert "[✗ ERROR ]" in output

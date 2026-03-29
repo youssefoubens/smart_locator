@@ -1,0 +1,12 @@
+*** Settings ***
+Documentation    Page object for {{ page_name }}
+
+*** Keywords ***
+Get Username Field
+    [Return]    css:[name="username"]
+
+Get Password Field
+    [Return]    css:[name="password"]
+
+Get Submit Button
+    [Return]    css:button[type="submit"]

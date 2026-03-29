@@ -1,0 +1,15 @@
+*** Settings ***
+Documentation    Generated Robot suite for {{ story_name }}
+Resource         ../resources/keywords.robot
+Resource         ../pages/login_page.robot
+
+*** Test Cases ***
+{{ story_name }}
+    Open Browser To Base Url
+    ${username}=    Get Username Field
+    ${password}=    Get Password Field
+    ${submit}=      Get Submit Button
+    Input Text      ${username}    demo@example.com
+    Input Text      ${password}    password123
+    Click Element   ${submit}
+    Close Browser Session

@@ -10,6 +10,11 @@ def test_build_parser_accepts_commands():
     assert args.command == "suggest"
     assist_args = parser.parse_args(["assist", "--url", "https://example.test"])
     assert assist_args.command == "assist"
+    init_args = parser.parse_args(["init"])
+    assert init_args.command == "init"
+    run_args = parser.parse_args(["run", "tests"])
+    assert run_args.command == "run"
+    assert run_args.run_target == "tests"
 
 
 @patch("smart_locator.cli.SmartLocator")
@@ -62,3 +67,29 @@ def test_main_assist_starts_chat_when_query_missing(mock_driver_factory, mock_lo
     assert exit_code == 0
     mock_run_chat.assert_called_once_with(locator)
     driver.quit.assert_called_once()
+
+
+@patch("smart_locator.cli.ProjectGenerator")
+@patch("smart_locator.cli._install_dependencies", return_value=0)
+def test_main_init_generates_project(mock_install, mock_generator_cls, tmp_path: Path):
+    generator = Mock()
+    generator.initialize_project.return_value = Mock(operations=[])
+    mock_generator_cls.return_value = generator
+
+    with patch("builtins.input", side_effect=["demo", "https://example.test/login", "selenium", "n"]):
+        exit_code = main(["init", "--project-root", str(tmp_path / "demo")])
+
+    assert exit_code == 0
+    assert (tmp_path / "demo" / "smartlocator.config.json").exists()
+    mock_install.assert_not_called()
+
+
+@patch("smart_locator.cli.run_tests", return_value=0)
+@patch("smart_locator.cli.discover_config")
+def test_main_run_tests_uses_discovered_config(mock_discover, mock_run_tests, tmp_path: Path):
+    mock_discover.return_value = Mock(project_root=tmp_path / "demo")
+
+    exit_code = main(["run", "tests"])
+
+    assert exit_code == 0
+    mock_run_tests.assert_called_once_with(tmp_path / "demo")

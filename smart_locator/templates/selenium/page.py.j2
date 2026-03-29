@@ -1,0 +1,27 @@
+"""Page object for the {{ page_name }} page."""
+
+from __future__ import annotations
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.webdriver import WebDriver
+
+from pages.base_page import BasePage
+
+
+class {{ page_class_name }}(BasePage):
+    """Page object with generated selectors."""
+
+{% for locator in locators %}
+    {{ locator.field_name.upper() }} = (By.CSS_SELECTOR, {{ locator.selector|tojson }})
+{% endfor %}
+
+    def __init__(self, driver: WebDriver, timeout: int = 10) -> None:
+        super().__init__(driver, timeout=timeout)
+
+{% for locator in locators %}
+    def get_{{ locator.field_name }}(self):
+        """Return the {{ locator.field_name.replace('_', ' ') }} element."""
+
+        return self.driver.find_element(*self.{{ locator.field_name.upper() }})
+
+{% endfor %}

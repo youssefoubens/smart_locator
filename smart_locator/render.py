@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import keyword
 import re
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 
 ANSI = {
@@ -124,6 +124,24 @@ def format_chat_reply(payload: Dict[str, object]) -> str:
         lines.append("- Fallbacks:")
         for locator in alternatives:
             lines.append(f"  {locator['exact']}")
+    return "\n".join(lines)
+
+
+def format_operation_results(operations: Sequence[Dict[str, str]]) -> str:
+    status_map = {
+        "CREATE": "[\u2713 CREATE]",
+        "MERGE": "[~ MERGE ]",
+        "OVERWRITE": "[~ MERGE ]",
+        "SKIP": "[! SKIP  ]",
+        "ERROR": "[\u2717 ERROR ]",
+    }
+    lines = []
+    for operation in operations:
+        status = status_map.get(operation["status"], f"[{operation['status']}]")
+        line = f"{status}   {operation['path']}"
+        if operation.get("message"):
+            line = f"{line}  {operation['message']}"
+        lines.append(line)
     return "\n".join(lines)
 
 

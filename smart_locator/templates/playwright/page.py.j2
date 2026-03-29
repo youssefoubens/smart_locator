@@ -1,0 +1,24 @@
+"""Async Playwright page object for {{ page_name }}."""
+
+from __future__ import annotations
+
+from playwright.async_api import Page
+
+
+class {{ page_class_name }}:
+    """Page object with async locator helpers."""
+
+{% for locator in locators %}
+    {{ locator.field_name.upper() }} = {{ locator.selector|tojson }}
+{% endfor %}
+
+    def __init__(self, page: Page) -> None:
+        self.page = page
+
+{% for locator in locators %}
+    async def get_{{ locator.field_name }}(self):
+        """Return the {{ locator.field_name.replace('_', ' ') }} locator."""
+
+        return self.page.locator(self.{{ locator.field_name.upper() }})
+
+{% endfor %}
