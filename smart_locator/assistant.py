@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .config import discover_config
+from .errors import SmartLocatorError
 from .file_manager import FileManager
 from .project_generator import ProjectGenerator
 from .render import format_chat_reply, format_operation_results, format_tester_workspace
@@ -15,7 +16,6 @@ from .test_runner import run_tests
 
 
 EXIT_WORDS = {"exit", "quit", "q"}
-ACTION_WORDS = ("create", "add", "generate", "run tests", "show project structure")
 
 
 @dataclass
@@ -28,6 +28,26 @@ class SessionContext:
     files_generated: List[str] = field(default_factory=list)
 
 
+@dataclass
+class GuidedWorkflow:
+    """Step-by-step scenario-building workflow state."""
+
+    scenario: str
+    suggested_page: str
+    analyzed_steps: List[Dict[str, str]]
+    analyzed_elements: List[str]
+    analyzed_actions: List[str]
+    stage: str = "create_page"
+    create_page: bool = True
+    page_name: Optional[str] = None
+    selected_elements: List[str] = field(default_factory=list)
+    use_pom: bool = True
+    add_selectors: bool = True
+    selector_mode: str = "auto"
+    file_strategy: str = "ask"
+    selector_overrides: Dict[str, str] = field(default_factory=dict)
+
+
 class SmartAssistant:
     """Intent-aware assistant for selectors and project automation."""
 
@@ -35,134 +55,262 @@ class SmartAssistant:
         self.locator = locator
         self.workspace = workspace
         self.context = SessionContext()
+        self.workflow: Optional[GuidedWorkflow] = None
         self._load_context()
 
     def answer(self, query: str, *, interactive: bool) -> str:
-        intent = self._detect_intent(query)
+        clean_query = query.strip()
+        if self.workflow is not None:
+            return self._continue_workflow(clean_query)
+
+        intent = self._detect_intent(clean_query)
         if intent == "selector":
-            return self._selector_reply(query)
+            return self._selector_reply(clean_query)
         if intent == "show_project_structure":
             return self._show_project_structure()
+        if intent == "run_tests":
+            return self._run_tests()
+        if intent == "start_workflow":
+            if not interactive:
+                return "Start `smart-locator assist --url <url>` and share the scenario there so I can guide you step by step."
+            return self._start_workflow(clean_query)
         if not interactive:
             return "This action changes project files. Start `smart-locator assist --url <url>` and confirm the action in chat."
-        return self._handle_action(intent, query)
+        return self._handle_direct_action(intent, clean_query)
 
     def _selector_reply(self, query: str) -> str:
-        payload = self.locator.assist(query, validate=True)
+        try:
+            payload = self.locator.assist(query, validate=True)
+        except SmartLocatorError as exc:
+            return (
+                f"I could not reach the selector service for `{query}`. "
+                f"Reason: {exc}. You can still continue with guided generation using a scenario like "
+                "`As a user, I want to log in successfully using valid credentials.`"
+            )
         workspace = format_tester_workspace(payload)
         reply = format_chat_reply(payload)
         return f"{workspace}\n\nChatbot\n{reply}".strip()
 
-    def _handle_action(self, intent: str, query: str) -> str:
-        if intent == "run_tests":
-            return self._run_tests()
+    def _handle_direct_action(self, intent: str, query: str) -> str:
         if intent == "create_page":
-            page_name = self._extract_page_name(query)
-            return self._create_page(page_name)
+            return self._create_page(self._extract_page_name(query))
         if intent == "add_field":
-            field_name = self._extract_field_name(query)
-            return self._add_field(field_name)
+            return self._add_field(self._extract_field_name(query))
         if intent == "generate_test":
             page_name = self.context.active_page or self._extract_page_name(query)
             return self._generate_test(page_name)
         if intent == "create_story":
-            return self._create_story(query)
+            return self._start_workflow(self._extract_story(query))
         return self._selector_reply(query)
 
-    def _create_page(self, page_name: str) -> str:
-        generator = self._require_generator()
-        page_class_name = self._class_name(page_name)
-        explanation = (
-            f"I can scaffold the `{page_name}` page object for the `{self.context.framework}` project. "
-            "This will create or update the framework page file using the file manager."
+    def _start_workflow(self, scenario: str) -> str:
+        if self.context.project_root is None:
+            return "No generated project is active. Run `smart-locator init`, then start the assistant from that project folder."
+        story = self._extract_story(scenario)
+        steps = self._story_steps(story)
+        elements = []
+        actions = []
+        for step in steps:
+            actions.append(step["keyword"])
+            if step["field_name"] not in elements:
+                elements.append(step["field_name"])
+        page_name = self._extract_page_name(story)
+        self.workflow = GuidedWorkflow(
+            scenario=story,
+            suggested_page=page_name,
+            analyzed_steps=steps,
+            analyzed_elements=elements,
+            analyzed_actions=actions,
         )
-        if not self._confirm(explanation):
-            return "Action canceled."
-        steps = [
-            {"keyword": "fill", "field_name": "username_field", "selector": '[name="username"]', "value": "demo@example.com"},
-            {"keyword": "fill", "field_name": "password_field", "selector": '[name="password"]', "value": "password123"},
-            {"keyword": "click", "field_name": "login_button", "selector": 'button[type="submit"]', "value": ""},
-        ]
+        return (
+            "Scenario analysis\n"
+            f"- Suggested page: `{page_name}`\n"
+            f"- Actions: {', '.join(actions)}\n"
+            f"- Elements: {', '.join(elements)}\n"
+            "Do you want to create a new page object for this? Reply `yes` or `no`."
+        )
+
+    def _continue_workflow(self, query: str) -> str:
+        assert self.workflow is not None
+        lowered = query.lower()
+
+        if self.workflow.stage == "create_page":
+            self.workflow.create_page = self._is_yes(query)
+            self.workflow.stage = "page_name"
+            return f"What is the name of the page? Press Enter meaningfully by replying with a name, or use `{self.workflow.suggested_page}`."
+
+        if self.workflow.stage == "page_name":
+            self.workflow.page_name = self._slugify(query or self.workflow.suggested_page)
+            self.workflow.stage = "elements"
+            suggested = ", ".join(self.workflow.analyzed_elements)
+            return (
+                f"Which elements should be included? Suggested: {suggested}. "
+                "Reply with comma-separated names or `suggested`."
+            )
+
+        if self.workflow.stage == "elements":
+            if lowered == "suggested":
+                self.workflow.selected_elements = list(self.workflow.analyzed_elements)
+            else:
+                self.workflow.selected_elements = [
+                    self._slugify(item) for item in query.split(",") if self._slugify(item)
+                ] or list(self.workflow.analyzed_elements)
+            self.workflow.stage = "pom"
+            return "Do you want to use POM structure? Reply `yes` or `no`."
+
+        if self.workflow.stage == "pom":
+            self.workflow.use_pom = self._is_yes(query)
+            self.workflow.stage = "selectors"
+            return "Do you want to add selectors now? Reply `yes` or `no`."
+
+        if self.workflow.stage == "selectors":
+            self.workflow.add_selectors = self._is_yes(query)
+            if not self.workflow.add_selectors:
+                self.workflow.stage = "file_strategy"
+                return "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
+            self.workflow.stage = "selector_mode"
+            return "Should selectors be auto-generated or manually confirmed? Reply `auto` or `manual`."
+
+        if self.workflow.stage == "selector_mode":
+            self.workflow.selector_mode = "manual" if lowered == "manual" else "auto"
+            if self.workflow.selector_mode == "manual":
+                self.workflow.stage = "selector_review"
+                return self._selector_review_prompt()
+            self.workflow.stage = "file_strategy"
+            return "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
+
+        if self.workflow.stage == "selector_review":
+            if lowered != "accept":
+                for part in query.split(","):
+                    if "=" not in part:
+                        continue
+                    name, selector = part.split("=", 1)
+                    key = self._slugify(name)
+                    self.workflow.selector_overrides[key] = selector.strip()
+            self.workflow.stage = "file_strategy"
+            return "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
+
+        if self.workflow.stage == "file_strategy":
+            chosen = lowered if lowered in {"merge", "overwrite", "ask"} else "ask"
+            self.workflow.file_strategy = chosen
+            self.workflow.stage = "confirm"
+            return self._workflow_summary()
+
+        if self.workflow.stage == "confirm":
+            if not self._is_yes(query):
+                self.workflow = None
+                return "Workflow canceled. Share another scenario whenever you want to start again."
+            return self._execute_workflow()
+
+        if self.workflow.stage == "done":
+            self.workflow = None
+            if lowered == "run tests":
+                return self._run_tests()
+            if "new" in lowered or "another" in lowered:
+                return "Share the next user story or test scenario and I’ll guide you through it."
+            if "edit" in lowered:
+                return "Tell me what you want to change, for example `add remember me field` or `generate checkout test`."
+            return "Your scenario is fully implemented. You can `run tests`, start another scenario, or edit an existing one."
+
+        return "I lost the workflow state. Please share the scenario again."
+
+    def _workflow_summary(self) -> str:
+        assert self.workflow is not None
+        selectors = "auto-generated" if self.workflow.selector_mode == "auto" else "manual confirmation"
+        return (
+            "Workflow summary\n"
+            f"- Scenario: {self.workflow.scenario}\n"
+            f"- Page: {self.workflow.page_name or self.workflow.suggested_page}\n"
+            f"- Elements: {', '.join(self.workflow.selected_elements)}\n"
+            f"- POM structure: {'yes' if self.workflow.use_pom else 'no'}\n"
+            f"- Selectors: {'included' if self.workflow.add_selectors else 'skipped'} ({selectors})\n"
+            f"- File strategy: {self.workflow.file_strategy}\n"
+            "Do you want me to generate the page object and test now? Reply `yes` or `no`."
+        )
+
+    def _execute_workflow(self) -> str:
+        assert self.workflow is not None
+        generator = self._require_generator()
+        page_name = self.workflow.page_name or self.workflow.suggested_page
+        steps = self._workflow_steps(page_name)
         result = generator.generate_story(
             page_name=page_name,
-            page_class_name=page_class_name,
-            test_name=page_name,
+            page_class_name=self._class_name(page_name),
+            test_name=self._slugify(self.workflow.scenario),
             steps=steps,
-            strategy="ask",
+            strategy=self.workflow.file_strategy,
         )
         self.context.active_page = page_name
         self._remember_operations(result.operations)
-        return self._format_result(explanation, result.operations)
+        self.workflow.stage = "done"
+        return (
+            f"{self._format_result('Your scenario is fully implemented.', result.operations)}\n"
+            "Do you want to proceed to execution or start another scenario?"
+        )
+
+    def _workflow_steps(self, page_name: str) -> List[Dict[str, str]]:
+        assert self.workflow is not None
+        selected = set(self.workflow.selected_elements)
+        final_steps = []
+        for step in self.workflow.analyzed_steps:
+            if step["field_name"] not in selected:
+                continue
+            item = dict(step)
+            if self.workflow.add_selectors:
+                item["selector"] = self.workflow.selector_overrides.get(
+                    step["field_name"],
+                    self._best_selector_for(step["field_name"]),
+                )
+            final_steps.append(item)
+        if not final_steps:
+            for field_name in self.workflow.selected_elements:
+                final_steps.append(
+                    {
+                        "keyword": "fill",
+                        "field_name": field_name,
+                        "selector": self.workflow.selector_overrides.get(field_name, self._best_selector_for(field_name)),
+                        "value": "sample value",
+                    }
+                )
+        return final_steps
+
+    def _selector_review_prompt(self) -> str:
+        assert self.workflow is not None
+        lines = [
+            "Selector review",
+            "Reply `accept` to keep these suggestions, or send overrides like `username_field=[name=\"username\"], login_button=button[type=\"submit\"]`.",
+        ]
+        for field_name in self.workflow.selected_elements:
+            lines.append(f"- {field_name}: {self._best_selector_for(field_name)}")
+        return "\n".join(lines)
+
+    def _best_selector_for(self, description: str) -> str:
+        try:
+            payload = self.locator.assist(description.replace("_", " "), validate=False)
+        except SmartLocatorError:
+            return f'[data-smart-locator="{self._slugify(description)}"]'
+        primary = payload["elements"][0]["primary_locator"] if payload.get("elements") else {}
+        return str(primary.get("selector", f'[data-smart-locator="{self._slugify(description)}"]'))
+
+    def _create_page(self, page_name: str) -> str:
+        return self._start_workflow(f"create {page_name} page")
 
     def _add_field(self, field_name: str) -> str:
         generator = self._require_generator()
         page_name = self.context.active_page or "login"
-        payload = self.locator.assist(field_name, validate=True)
-        primary = payload["elements"][0]["primary_locator"] if payload.get("elements") else {}
-        selector = str(primary.get("selector", f'[name="{field_name.replace("_field", "")}"]'))
-        explanation = (
-            f"I found `{selector}` for `{field_name}` and can merge it into `{page_name}`. "
-            "If the page file already exists, I’ll ask whether to merge, overwrite, or skip."
-        )
-        if not self._confirm(explanation):
-            return "Action canceled."
+        selector = self._best_selector_for(field_name)
         operation = generator.merge_locator(page_name=page_name, field_name=field_name, selector=selector, strategy="ask")
         self._remember_operations([operation])
-        return self._format_result(explanation, [operation])
+        return self._format_result(f"I added `{field_name}` to `{page_name}` using selector `{selector}`.", [operation])
 
     def _generate_test(self, page_name: str) -> str:
-        generator = self._require_generator()
-        explanation = (
-            f"I can generate a `{page_name}` test from the active page context for `{self.context.framework}`. "
-            "This will update the test file through the file manager."
-        )
-        if not self._confirm(explanation):
-            return "Action canceled."
-        steps = [
-            {"keyword": "fill", "field_name": "username_field", "selector": '[name="username"]', "value": "demo@example.com"},
-            {"keyword": "fill", "field_name": "password_field", "selector": '[name="password"]', "value": "password123"},
-            {"keyword": "click", "field_name": "login_button", "selector": 'button[type="submit"]', "value": ""},
-        ]
-        result = generator.generate_story(
-            page_name=page_name,
-            page_class_name=self._class_name(page_name),
-            test_name=page_name,
-            steps=steps,
-            strategy="ask",
-        )
-        self._remember_operations(result.operations)
-        return self._format_result(explanation, result.operations)
-
-    def _create_story(self, query: str) -> str:
-        generator = self._require_generator()
-        story = self._extract_story(query)
-        steps = self._story_steps(story)
-        explanation = (
-            f"I parsed the story into {len(steps)} step(s) and will generate or update the matching page object and test. "
-            "Selectors come from SmartLocator where possible, with safe fallbacks when no confident match exists."
-        )
-        if not self._confirm(explanation):
-            return "Action canceled."
-        page_name = self._extract_page_name(story)
-        result = generator.generate_story(
-            page_name=page_name,
-            page_class_name=self._class_name(page_name),
-            test_name=self._slugify(story),
-            steps=steps,
-            strategy="ask",
-        )
-        self.context.active_page = page_name
-        self._remember_operations(result.operations)
-        return self._format_result(explanation, result.operations)
+        return self._start_workflow(f"create {page_name} test")
 
     def _run_tests(self) -> str:
         if self.context.project_root is None:
             return "No generated project is active yet. Run `smart-locator init` first."
-        explanation = f"I can run the `{self.context.framework}` suite from `{self.context.project_root}`."
-        if not self._confirm(explanation):
-            return "Action canceled."
         exit_code = run_tests(self.context.project_root)
-        return f"{explanation}\nFinished with exit code {exit_code}."
+        return f"Finished running the `{self.context.framework}` suite with exit code {exit_code}."
 
     def _show_project_structure(self) -> str:
         if self.context.project_root is None:
@@ -188,16 +336,21 @@ class SmartAssistant:
             noun = self._noun_for_clause(clause)
             value = self._quoted_value(clause)
             if keyword == "navigate":
-                steps.append({"keyword": "navigate", "field_name": f"{self._slugify(noun)}_page", "selector": self.locator.current_url, "value": self.locator.current_url})
+                steps.append(
+                    {
+                        "keyword": "navigate",
+                        "field_name": f"{self._slugify(noun)}_page",
+                        "selector": self.locator.current_url,
+                        "value": self.locator.current_url,
+                    }
+                )
                 continue
             steps.append(self._selector_step(keyword, noun, value))
         return steps or [self._selector_step("click", story, "")]
 
     def _selector_step(self, keyword: str, noun: str, value: str) -> Dict[str, str]:
-        payload = self.locator.assist(noun, validate=False)
-        primary = payload["elements"][0]["primary_locator"] if payload.get("elements") else {}
         field_name = self._field_name_for(keyword, noun)
-        selector = str(primary.get("selector", f'[data-smart-locator="{self._slugify(noun)}"]'))
+        selector = self._best_selector_for(field_name)
         return {"keyword": keyword, "field_name": field_name, "selector": selector, "value": value}
 
     def _keyword_for_clause(self, clause: str) -> str:
@@ -269,6 +422,8 @@ class SmartAssistant:
             return "run_tests"
         if lowered == "show project structure":
             return "show_project_structure"
+        if self._looks_like_story(lowered):
+            return "start_workflow"
         if lowered.startswith("create ") and " page" in lowered:
             return "create_page"
         if lowered.startswith("add ") and " field" in lowered:
@@ -278,6 +433,9 @@ class SmartAssistant:
         if lowered.startswith("create "):
             return "create_story"
         return "selector"
+
+    def _looks_like_story(self, query: str) -> bool:
+        return "as a " in query or "i want to" in query or query.startswith("scenario:")
 
     def _load_context(self) -> None:
         config = discover_config(self.workspace)
@@ -290,6 +448,7 @@ class SmartAssistant:
     def _require_generator(self) -> ProjectGenerator:
         if self.context.project_root is None:
             raise RuntimeError("No generated project is active. Run `smart-locator init` first.")
+
         def decision_callback(path: Path) -> str:
             answer = input(f"{path} exists. Choose Merge / Overwrite / Skip: ").strip().lower()
             mapping = {"merge": "merge", "overwrite": "overwrite", "skip": "skip"}
@@ -299,10 +458,6 @@ class SmartAssistant:
             self.context.project_root,
             file_manager=FileManager(self.context.project_root, decision_callback=decision_callback),
         )
-
-    def _confirm(self, explanation: str) -> bool:
-        answer = input(f"{explanation}\nProceed? [y/N]: ").strip().lower()
-        return answer in {"y", "yes"}
 
     def _remember_operations(self, operations) -> None:
         for operation in operations:
@@ -319,6 +474,9 @@ class SmartAssistant:
         ]
         return f"{explanation}\n{format_operation_results(payload)}"
 
+    def _is_yes(self, value: str) -> bool:
+        return value.strip().lower() in {"y", "yes", "true", "ok", "continue"}
+
 
 def answer_query(locator, query: str, *, validate: bool = True) -> str:
     assistant = SmartAssistant(locator, Path.cwd())
@@ -329,7 +487,10 @@ def answer_query(locator, query: str, *, validate: bool = True) -> str:
 
 def run_chat(locator) -> int:
     assistant = SmartAssistant(locator, Path.cwd())
-    print("Tester assistant is ready. Ask for selectors or project actions like 'create login page'. Type 'exit' to leave.")
+    print(
+        "Tester assistant is ready. Share a user story or use commands like `create login page`. "
+        "Type `exit` to leave."
+    )
     while True:
         try:
             query = input("tester> ").strip()
@@ -337,7 +498,7 @@ def run_chat(locator) -> int:
             print()
             return 0
         if not query:
-            print("Please describe the element or action you want.")
+            print("Please describe the scenario, selector, or action you want.")
             continue
         if query.lower() in EXIT_WORDS:
             print("Closing tester assistant.")

@@ -1,0 +1,15 @@
+{
+  "project_name": "testdemo",
+  "target_url": "https://site.com",
+  "framework": "selenium",
+  "project_root": "C:\\Users\\youssef\\Documents\\Playground\\testdemo",
+  "dependencies_installed": true,
+  "generated_files": [
+    "pages/base_page.py",
+    "pages/login_page.py",
+    "requirements.txt",
+    "tests/conftest.py",
+    "tests/test_login.py",
+    "utils/driver_factory.py"
+  ]
+}
