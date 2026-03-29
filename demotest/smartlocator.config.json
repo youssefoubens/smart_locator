@@ -1,0 +1,14 @@
+{
+  "project_name": "demotest",
+  "target_url": "https://site.com",
+  "framework": "playwright",
+  "project_root": "C:\\Users\\youssef\\Documents\\Playground\\demotest",
+  "dependencies_installed": true,
+  "generated_files": [
+    "pages/login_page.py",
+    "playwright.config.py",
+    "requirements.txt",
+    "tests/test_as_a_user_i_want_to_log_in_successfully_using_valid_credentials.py",
+    "tests/test_login.py"
+  ]
+}

@@ -82,13 +82,15 @@ def test_guided_workflow_generates_story_assets(tmp_path: Path):
     assert "Do you want to add selectors now?" in reply
 
     reply = assistant.answer("yes", interactive=True)
-    assert "auto-generated or manually confirmed" in reply
+    assert "selected the best selectors automatically" in reply
+    assert "[data-testid=\"login-button\"]" in reply
 
     reply = assistant.answer("auto", interactive=True)
-    assert "file strategy" in reply
+    assert "add those selectors automatically" in reply
 
     reply = assistant.answer("overwrite", interactive=True)
     assert "Workflow summary" in reply
+    assert "Resolved selectors:" in reply
 
     with patch("builtins.input", side_effect=["overwrite", "overwrite"]):
         reply = assistant.answer("yes", interactive=True)
@@ -114,6 +116,7 @@ def test_manual_selector_review_accepts_overrides(tmp_path: Path):
     reply = assistant.answer("manual", interactive=True)
 
     assert "Selector review" in reply
+    assert '[name="username"]' in reply
     reply = assistant.answer('username_field=[data-testid="login-username"]', interactive=True)
     assert "file strategy" in reply
 

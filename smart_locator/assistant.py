@@ -45,6 +45,7 @@ class GuidedWorkflow:
     add_selectors: bool = True
     selector_mode: str = "auto"
     file_strategy: str = "ask"
+    resolved_selectors: Dict[str, str] = field(default_factory=dict)
     selector_overrides: Dict[str, str] = field(default_factory=dict)
 
 
@@ -155,6 +156,7 @@ class SmartAssistant:
                 self.workflow.selected_elements = [
                     self._slugify(item) for item in query.split(",") if self._slugify(item)
                 ] or list(self.workflow.analyzed_elements)
+            self.workflow.resolved_selectors = self._resolve_selectors(self.workflow.selected_elements)
             self.workflow.stage = "pom"
             return "Do you want to use POM structure? Reply `yes` or `no`."
 
@@ -169,7 +171,14 @@ class SmartAssistant:
                 self.workflow.stage = "file_strategy"
                 return "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
             self.workflow.stage = "selector_mode"
-            return "Should selectors be auto-generated or manually confirmed? Reply `auto` or `manual`."
+            selector_lines = "\n".join(
+                f"- {field_name}: {selector}" for field_name, selector in self.workflow.resolved_selectors.items()
+            )
+            return (
+                "I selected the best selectors automatically for the current elements:\n"
+                f"{selector_lines}\n"
+                "Do you want to keep them as-is (`auto`) or review and modify them (`manual`)?"
+            )
 
         if self.workflow.stage == "selector_mode":
             self.workflow.selector_mode = "manual" if lowered == "manual" else "auto"
@@ -177,7 +186,10 @@ class SmartAssistant:
                 self.workflow.stage = "selector_review"
                 return self._selector_review_prompt()
             self.workflow.stage = "file_strategy"
-            return "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
+            return (
+                "Great, I will add those selectors automatically during generation.\n"
+                "Before modifying files, choose a file strategy: `merge`, `overwrite`, or `ask`."
+            )
 
         if self.workflow.stage == "selector_review":
             if lowered != "accept":
@@ -224,6 +236,7 @@ class SmartAssistant:
             f"- Elements: {', '.join(self.workflow.selected_elements)}\n"
             f"- POM structure: {'yes' if self.workflow.use_pom else 'no'}\n"
             f"- Selectors: {'included' if self.workflow.add_selectors else 'skipped'} ({selectors})\n"
+            f"- Resolved selectors: {self._selector_summary()}\n"
             f"- File strategy: {self.workflow.file_strategy}\n"
             "Do you want me to generate the page object and test now? Reply `yes` or `no`."
         )
@@ -259,7 +272,7 @@ class SmartAssistant:
             if self.workflow.add_selectors:
                 item["selector"] = self.workflow.selector_overrides.get(
                     step["field_name"],
-                    self._best_selector_for(step["field_name"]),
+                    self.workflow.resolved_selectors.get(step["field_name"], self._best_selector_for(step["field_name"])),
                 )
             final_steps.append(item)
         if not final_steps:
@@ -268,7 +281,10 @@ class SmartAssistant:
                     {
                         "keyword": "fill",
                         "field_name": field_name,
-                        "selector": self.workflow.selector_overrides.get(field_name, self._best_selector_for(field_name)),
+                        "selector": self.workflow.selector_overrides.get(
+                            field_name,
+                            self.workflow.resolved_selectors.get(field_name, self._best_selector_for(field_name)),
+                        ),
                         "value": "sample value",
                     }
                 )
@@ -281,7 +297,7 @@ class SmartAssistant:
             "Reply `accept` to keep these suggestions, or send overrides like `username_field=[name=\"username\"], login_button=button[type=\"submit\"]`.",
         ]
         for field_name in self.workflow.selected_elements:
-            lines.append(f"- {field_name}: {self._best_selector_for(field_name)}")
+            lines.append(f"- {field_name}: {self.workflow.resolved_selectors.get(field_name, self._best_selector_for(field_name))}")
         return "\n".join(lines)
 
     def _best_selector_for(self, description: str) -> str:
@@ -291,6 +307,22 @@ class SmartAssistant:
             return f'[data-smart-locator="{self._slugify(description)}"]'
         primary = payload["elements"][0]["primary_locator"] if payload.get("elements") else {}
         return str(primary.get("selector", f'[data-smart-locator="{self._slugify(description)}"]'))
+
+    def _resolve_selectors(self, field_names: List[str]) -> Dict[str, str]:
+        return {field_name: self._best_selector_for(field_name) for field_name in field_names}
+
+    def _selector_summary(self) -> str:
+        assert self.workflow is not None
+        if not self.workflow.add_selectors:
+            return "none"
+        pairs = []
+        for field_name in self.workflow.selected_elements:
+            selector = self.workflow.selector_overrides.get(
+                field_name,
+                self.workflow.resolved_selectors.get(field_name, "-"),
+            )
+            pairs.append(f"{field_name}={selector}")
+        return ", ".join(pairs)
 
     def _create_page(self, page_name: str) -> str:
         return self._start_workflow(f"create {page_name} page")

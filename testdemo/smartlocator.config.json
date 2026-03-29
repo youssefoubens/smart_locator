@@ -9,6 +9,7 @@
     "pages/login_page.py",
     "requirements.txt",
     "tests/conftest.py",
+    "tests/test_as_a_user_i_want_to_log_in_successfully_using_valid_credentials.py",
     "tests/test_login.py",
     "utils/driver_factory.py"
   ]
