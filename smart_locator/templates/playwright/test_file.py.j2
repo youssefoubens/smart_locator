@@ -1,0 +1,42 @@
+"""Generated async Playwright test for {{ scenario_name }}."""
+
+from __future__ import annotations
+
+import pytest
+from playwright.async_api import async_playwright, expect
+
+from pages.{{ page_name }}_page import {{ class_name }}
+
+
+@pytest.mark.asyncio
+async def test_{{ test_function_name }}() -> None:
+    """{{ scenario_name }}"""
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        page = await browser.new_page()
+        await page.goto("{{ base_url }}")
+        page_object = {{ class_name }}(page)
+
+{% for element_name, action in elements.items() %}
+{% if action == "fill" %}
+        {{ element_name }} = await page_object.get_{{ element_name }}()
+        await {{ element_name }}.fill("{{ test_data.get(element_name, 'sample_value') }}")
+{% elif action == "click" %}
+        {{ element_name }} = await page_object.get_{{ element_name }}()
+        await {{ element_name }}.click()
+{% elif action == "assert_visible" %}
+        {{ element_name }} = await page_object.get_{{ element_name }}()
+        await expect({{ element_name }}).to_be_visible()
+{% elif action == "select" %}
+        {{ element_name }} = await page_object.get_{{ element_name }}()
+        await {{ element_name }}.select_option("{{ test_data.get(element_name, 'option1') }}")
+{% elif action == "upload" %}
+        {{ element_name }} = await page_object.get_{{ element_name }}()
+        await {{ element_name }}.set_input_files("path/to/test_file.txt")
+{% elif action == "goto" %}
+        await page.goto("{{ base_url }}")
+{% endif %}
+
+{% endfor %}
+        await browser.close()

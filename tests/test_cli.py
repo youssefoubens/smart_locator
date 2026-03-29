@@ -93,3 +93,14 @@ def test_main_run_tests_uses_discovered_config(mock_discover, mock_run_tests, tm
 
     assert exit_code == 0
     mock_run_tests.assert_called_once_with(tmp_path / "demo")
+
+
+@patch("smart_locator.cli.run_tests", return_value=0)
+@patch("smart_locator.cli.discover_config")
+def test_main_run_test_singular_is_normalized(mock_discover, mock_run_tests, tmp_path: Path):
+    mock_discover.return_value = Mock(project_root=tmp_path / "demo")
+
+    exit_code = main(["run", "test"])
+
+    assert exit_code == 0
+    mock_run_tests.assert_called_once_with(tmp_path / "demo")

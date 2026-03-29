@@ -84,17 +84,23 @@ class SeleniumFramework(BaseFramework):
                 },
             ),
             TemplateSpec(
-                "test_page.py.j2",
+                "test_file.py.j2",
                 "tests/test_login.py",
                 {
-                    "page_class_name": page_class_name,
-                    "page_module_name": self.page_file_name(page_name),
-                    "story_name": "login with valid credentials",
-                    "steps": [
+                    "class_name": page_class_name,
+                    "page_name": page_name,
+                    "scenario_name": "login with valid credentials",
+                    "test_function_name": "login_with_valid_credentials",
+                    "elements": self._step_actions(
                         {"keyword": "fill", "field_name": "username_field", "value": "demo@example.com"},
                         {"keyword": "fill", "field_name": "password_field", "value": "password123"},
                         {"keyword": "click", "field_name": "submit_button", "value": ""},
-                    ],
+                    ),
+                    "test_data": {
+                        "username_field": "demo@example.com",
+                        "password_field": "password123",
+                    },
+                    "base_url": config.target_url,
                 },
             ),
         ]
@@ -107,7 +113,7 @@ class SeleniumFramework(BaseFramework):
         test_name: str,
         steps: Sequence[Dict[str, str]],
     ) -> Sequence[TemplateSpec]:
-        locators = [step for step in steps if step["keyword"] in {"click", "fill", "type", "verify", "assert"}]
+        locators = [step for step in steps if step["keyword"] != "goto"]
         return [
             TemplateSpec(
                 "page.py.j2",
@@ -115,13 +121,16 @@ class SeleniumFramework(BaseFramework):
                 {"page_class_name": page_class_name, "page_name": page_name, "locators": locators},
             ),
             TemplateSpec(
-                "test_page.py.j2",
+                "test_file.py.j2",
                 f"tests/test_{test_name}.py",
                 {
-                    "page_class_name": page_class_name,
-                    "page_module_name": self.page_file_name(page_name),
-                    "story_name": test_name.replace("_", " "),
-                    "steps": steps,
+                    "class_name": page_class_name,
+                    "page_name": page_name,
+                    "scenario_name": test_name.replace("_", " "),
+                    "test_function_name": test_name,
+                    "elements": self._step_actions(*steps),
+                    "test_data": self._step_values(*steps),
+                    "base_url": config.target_url,
                 },
             ),
         ]
@@ -162,6 +171,17 @@ class SeleniumFramework(BaseFramework):
             "requirements.txt",
         ]
 
+    def _step_actions(self, *steps: Dict[str, str]) -> Dict[str, str]:
+        return {step["field_name"]: self._normalize_action(step["keyword"]) for step in steps}
+
+    def _step_values(self, *steps: Dict[str, str]) -> Dict[str, str]:
+        return {step["field_name"]: step.get("value", "") for step in steps if step.get("value")}
+
+    def _normalize_action(self, action: str) -> str:
+        if action in {"verify", "assert"}:
+            return "assert_visible"
+        return action
+
 
 class PlaywrightFramework(BaseFramework):
     name = "playwright"
@@ -187,17 +207,23 @@ class PlaywrightFramework(BaseFramework):
                 },
             ),
             TemplateSpec(
-                "test_page.py.j2",
+                "test_file.py.j2",
                 "tests/test_login.py",
                 {
-                    "page_class_name": "LoginPage",
-                    "page_module_name": self.page_file_name(page_name),
-                    "story_name": "login with valid credentials",
-                    "steps": [
+                    "class_name": "LoginPage",
+                    "page_name": page_name,
+                    "scenario_name": "login with valid credentials",
+                    "test_function_name": "login_with_valid_credentials",
+                    "elements": self._step_actions(
                         {"keyword": "fill", "field_name": "username_field", "value": "demo@example.com"},
                         {"keyword": "fill", "field_name": "password_field", "value": "password123"},
                         {"keyword": "click", "field_name": "submit_button", "value": ""},
-                    ],
+                    ),
+                    "test_data": {
+                        "username_field": "demo@example.com",
+                        "password_field": "password123",
+                    },
+                    "base_url": config.target_url,
                 },
             ),
         ]
@@ -210,7 +236,7 @@ class PlaywrightFramework(BaseFramework):
         test_name: str,
         steps: Sequence[Dict[str, str]],
     ) -> Sequence[TemplateSpec]:
-        locators = [step for step in steps if step["keyword"] in {"click", "fill", "type", "verify", "assert"}]
+        locators = [step for step in steps if step["keyword"] != "goto"]
         return [
             TemplateSpec(
                 "page.py.j2",
@@ -218,13 +244,16 @@ class PlaywrightFramework(BaseFramework):
                 {"page_class_name": page_class_name, "page_name": page_name, "locators": locators},
             ),
             TemplateSpec(
-                "test_page.py.j2",
+                "test_file.py.j2",
                 f"tests/test_{test_name}.py",
                 {
-                    "page_class_name": page_class_name,
-                    "page_module_name": self.page_file_name(page_name),
-                    "story_name": test_name.replace("_", " "),
-                    "steps": steps,
+                    "class_name": page_class_name,
+                    "page_name": page_name,
+                    "scenario_name": test_name.replace("_", " "),
+                    "test_function_name": test_name,
+                    "elements": self._step_actions(*steps),
+                    "test_data": self._step_values(*steps),
+                    "base_url": config.target_url,
                 },
             ),
         ]
@@ -258,6 +287,17 @@ class PlaywrightFramework(BaseFramework):
             "requirements.txt",
         ]
 
+    def _step_actions(self, *steps: Dict[str, str]) -> Dict[str, str]:
+        return {step["field_name"]: self._normalize_action(step["keyword"]) for step in steps}
+
+    def _step_values(self, *steps: Dict[str, str]) -> Dict[str, str]:
+        return {step["field_name"]: step.get("value", "") for step in steps if step.get("value")}
+
+    def _normalize_action(self, action: str) -> str:
+        if action in {"verify", "assert"}:
+            return "assert_visible"
+        return action
+
 
 class RobotFrameworkAdapter(BaseFramework):
     name = "robot"
@@ -270,7 +310,23 @@ class RobotFrameworkAdapter(BaseFramework):
             TemplateSpec("variables.robot.j2", "resources/variables.robot", {"target_url": config.target_url}),
             TemplateSpec("keywords.robot.j2", "resources/keywords.robot", {"project_name": config.project_name}),
             TemplateSpec("page_object.robot.j2", "pages/login_page.robot", {"page_name": "login"}),
-            TemplateSpec("test_suite.robot.j2", "tests/login.robot", {"story_name": "Login with valid credentials"}),
+            TemplateSpec(
+                "test_file.robot.j2",
+                "tests/login.robot",
+                {
+                    "scenario_name": "Login with valid credentials",
+                    "steps": [
+                        {"keyword": "fill", "field_name": "username_field", "selector": '[name="username"]', "value": "demo@example.com"},
+                        {"keyword": "fill", "field_name": "password_field", "selector": '[name="password"]', "value": "password123"},
+                        {"keyword": "click", "field_name": "submit_button", "selector": 'button[type="submit"]', "value": ""},
+                    ],
+                    "base_url": config.target_url,
+                    "test_data": {
+                        "username_field": "demo@example.com",
+                        "password_field": "password123",
+                    },
+                },
+            ),
         ]
 
     def story_templates(
@@ -284,9 +340,14 @@ class RobotFrameworkAdapter(BaseFramework):
         return [
             TemplateSpec("page_object.robot.j2", f"pages/{page_name}_page.robot", {"page_name": page_name}),
             TemplateSpec(
-                "test_suite.robot.j2",
+                "test_file.robot.j2",
                 f"tests/{test_name}.robot",
-                {"story_name": test_name.replace("_", " ").title(), "steps": list(steps)},
+                {
+                    "scenario_name": test_name.replace("_", " ").title(),
+                    "steps": list(steps),
+                    "base_url": config.target_url,
+                    "test_data": self._step_values(*steps),
+                },
             ),
         ]
 
@@ -318,6 +379,9 @@ class RobotFrameworkAdapter(BaseFramework):
             "tests/login.robot",
             "requirements.txt",
         ]
+
+    def _step_values(self, *steps: Dict[str, str]) -> Dict[str, str]:
+        return {step["field_name"]: step.get("value", "") for step in steps if step.get("value")}
 
 
 FRAMEWORKS = {

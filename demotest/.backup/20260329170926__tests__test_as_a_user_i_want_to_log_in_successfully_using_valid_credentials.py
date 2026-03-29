@@ -23,5 +23,3 @@ async def test_as_a_user_i_want_to_log_in_successfully_using_valid_credentials()
 
 
         await browser.close()
-
-"""Generated async Playwright test for as a user i want to log in successfully using valid credentials."""

@@ -98,7 +98,10 @@ def _run_init(args) -> int:
 
 def main(argv=None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    normalized_argv = list(sys.argv[1:] if argv is None else argv)
+    if len(normalized_argv) >= 2 and normalized_argv[0] == "run" and normalized_argv[1] == "test":
+        normalized_argv[1] = "tests"
+    args = parser.parse_args(normalized_argv)
     if args.command == "init":
         return _run_init(args)
     if args.command == "run" and args.run_target == "tests":

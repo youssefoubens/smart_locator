@@ -1,0 +1,29 @@
+"""Generated Selenium test for {{ scenario_name }}."""
+
+from __future__ import annotations
+
+from pages.{{ page_name }}_page import {{ class_name }}
+
+
+def test_{{ test_function_name }}(driver) -> None:
+    """{{ scenario_name }}"""
+
+    driver.get("{{ base_url }}")
+    page_object = {{ class_name }}(driver)
+
+{% for element_name, action in elements.items() %}
+{% if action == "fill" %}
+    page_object.get_{{ element_name }}().send_keys("{{ test_data.get(element_name, 'sample_value') }}")
+{% elif action == "click" %}
+    page_object.get_{{ element_name }}().click()
+{% elif action == "assert_visible" %}
+    assert page_object.get_{{ element_name }}().is_displayed()
+{% elif action == "select" %}
+    page_object.get_{{ element_name }}().send_keys("{{ test_data.get(element_name, 'option1') }}")
+{% elif action == "upload" %}
+    page_object.get_{{ element_name }}().send_keys("path/to/test_file.txt")
+{% elif action == "goto" %}
+    driver.get("{{ base_url }}")
+{% endif %}
+
+{% endfor %}

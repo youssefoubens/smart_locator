@@ -1,0 +1,26 @@
+*** Settings ***
+Documentation    Generated Robot suite for {{ scenario_name }}
+Library          SeleniumLibrary
+
+*** Test Cases ***
+{{ scenario_name }}
+    Open Browser    {{ base_url }}    chrome
+{% for step in steps %}
+{% set element_name = step.field_name %}
+{% set action = step.keyword %}
+{% set selector = step.selector %}
+{% if action == "fill" %}
+    Input Text    {{ selector }}    {{ test_data.get(element_name, 'sample_value') }}
+{% elif action == "click" %}
+    Click Element    {{ selector }}
+{% elif action == "assert_visible" %}
+    Element Should Be Visible    {{ selector }}
+{% elif action == "select" %}
+    Select From List By Value    {{ selector }}    {{ test_data.get(element_name, 'option1') }}
+{% elif action == "upload" %}
+    Choose File    {{ selector }}    path/to/test_file.txt
+{% elif action == "goto" %}
+    Go To    {{ base_url }}
+{% endif %}
+{% endfor %}
+    Close Browser

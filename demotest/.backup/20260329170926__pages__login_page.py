@@ -38,5 +38,3 @@ class LoginPage:
         return self.page.locator(self.SUBMIT_BUTTON)
 
 """Async Playwright page object for login."""
-
-"""Async Playwright page object for login."""

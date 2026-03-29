@@ -12,6 +12,7 @@ from .errors import SmartLocatorError
 from .file_manager import FileManager
 from .project_generator import ProjectGenerator
 from .render import format_chat_reply, format_operation_results, format_tester_workspace
+from .story_parser import parse_story
 from .test_runner import run_tests
 
 
@@ -342,7 +343,11 @@ class SmartAssistant:
         if self.context.project_root is None:
             return "No generated project is active yet. Run `smart-locator init` first."
         exit_code = run_tests(self.context.project_root)
-        return f"Finished running the `{self.context.framework}` suite with exit code {exit_code}."
+        return (
+            "Running your test suite...\n"
+            "Use this command: smart-locator run tests\n"
+            f"Finished running the `{self.context.framework}` suite with exit code {exit_code}."
+        )
 
     def _show_project_structure(self) -> str:
         if self.context.project_root is None:
@@ -352,32 +357,38 @@ class SmartAssistant:
         return f"Project structure for `{self.context.framework}`:\n{tree}"
 
     def _story_steps(self, story: str) -> List[Dict[str, str]]:
-        lowered = story.lower()
-        if "login" in lowered:
-            return [
-                self._selector_step("fill", "username field", "demo@example.com"),
-                self._selector_step("fill", "password field", "password123"),
-                self._selector_step("click", "login button", ""),
-                self._selector_step("verify", "dashboard", ""),
-            ]
-
-        clauses = [segment.strip() for segment in re.split(r"\bthen\b|\band\b|,", lowered) if segment.strip()]
+        semantic_actions = parse_story(story, llm_fallback=self._llm_story_fallback)
         steps = []
-        for clause in clauses:
-            keyword = self._keyword_for_clause(clause)
-            noun = self._noun_for_clause(clause)
-            value = self._quoted_value(clause)
-            if keyword == "navigate":
+        for field_name, action in semantic_actions.items():
+            if action == "goto":
                 steps.append(
                     {
-                        "keyword": "navigate",
-                        "field_name": f"{self._slugify(noun)}_page",
+                        "keyword": "goto",
+                        "field_name": field_name,
                         "selector": self.locator.current_url,
                         "value": self.locator.current_url,
                     }
                 )
                 continue
-            steps.append(self._selector_step(keyword, noun, value))
+            default_value = "sample_value"
+            if field_name == "username_field":
+                default_value = "demo@example.com"
+            elif "password" in field_name:
+                default_value = "password123"
+            elif action == "select":
+                default_value = "option1"
+            elif action == "upload":
+                default_value = "path/to/test_file.txt"
+            elif action in {"click", "assert_visible"}:
+                default_value = ""
+            steps.append(
+                {
+                    "keyword": action,
+                    "field_name": field_name,
+                    "selector": self._best_selector_for(field_name),
+                    "value": default_value,
+                }
+            )
         return steps or [self._selector_step("click", story, "")]
 
     def _selector_step(self, keyword: str, noun: str, value: str) -> Dict[str, str]:
@@ -450,7 +461,7 @@ class SmartAssistant:
 
     def _detect_intent(self, query: str) -> str:
         lowered = query.strip().lower()
-        if lowered == "run tests":
+        if any(phrase in lowered for phrase in ("run test", "run tests", "execute test", "execute tests")):
             return "run_tests"
         if lowered == "show project structure":
             return "show_project_structure"
@@ -508,6 +519,22 @@ class SmartAssistant:
 
     def _is_yes(self, value: str) -> bool:
         return value.strip().lower() in {"y", "yes", "true", "ok", "continue"}
+
+    def _llm_story_fallback(self, story: str) -> Dict[str, str]:
+        payload = self.locator.assist(story, validate=False)
+        elements = payload.get("elements", [])
+        if not elements:
+            return {}
+        actions: Dict[str, str] = {}
+        for element in elements[:3]:
+            label = str(element.get("label", "target")).lower()
+            field_name = self._field_name_for("click", label)
+            if "input" in label or "field" in label or "password" in label:
+                field_name = self._field_name_for("fill", label)
+                actions[field_name] = "fill"
+                continue
+            actions[field_name] = "click"
+        return actions
 
 
 def answer_query(locator, query: str, *, validate: bool = True) -> str:

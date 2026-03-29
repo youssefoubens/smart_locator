@@ -50,3 +50,34 @@ def test_generate_story_updates_page_and_test(tmp_path: Path):
     assert (project_root / "pages" / "checkout_page.py").exists()
     assert (project_root / "tests" / "test_checkout_flow.py").exists()
     assert any(operation.status == "CREATE" for operation in result.operations)
+
+
+def test_playwright_test_template_uses_base_url_and_actions(tmp_path: Path):
+    project_root = tmp_path / "demo"
+    config = ProjectConfig(
+        project_name="demo",
+        target_url="https://example.test/login",
+        framework="playwright",
+        project_root=project_root,
+    )
+    generator = ProjectGenerator(config, file_manager=FileManager(project_root, decision_callback=lambda _: "overwrite"))
+
+    result = generator.generate_story(
+        page_name="login",
+        page_class_name="LoginPage",
+        test_name="login_story",
+        steps=[
+            {"keyword": "fill", "field_name": "username_field", "selector": '[name="username"]', "value": "demo@example.com"},
+            {"keyword": "fill", "field_name": "password_field", "selector": '[name="password"]', "value": "password123"},
+            {"keyword": "click", "field_name": "submit_button", "selector": 'button[type="submit"]', "value": ""},
+            {"keyword": "assert_visible", "field_name": "success_message", "selector": '[data-testid="success"]', "value": ""},
+        ],
+        strategy="overwrite",
+    )
+
+    content = (project_root / "tests" / "test_login_story.py").read_text(encoding="utf-8")
+    assert any(operation.status == "CREATE" for operation in result.operations)
+    assert 'await page.goto("https://example.test/login")' in content
+    assert "await username_field.fill" in content
+    assert "await submit_button.click()" in content
+    assert "await expect(success_message).to_be_visible()" in content
